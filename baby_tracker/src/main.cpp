@@ -40,11 +40,11 @@ struct Button {
 };
 
 Button buttons[] = {
-  {"Blue Button", 4, LOW},
-  {"Red Button", 19, LOW},
-  {"Green Button", 5, LOW},
-  {"Yellow Button", 21, LOW},
-  {"Black Button", 18, LOW}
+  {"Blue", 4, LOW},
+  {"Red", 19, LOW},
+  {"Green", 5, LOW},
+  {"Yellow", 21, LOW},
+  {"Black", 18, LOW}
 };
 
 void setup() {
