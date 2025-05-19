@@ -5,16 +5,18 @@
 - Test board with a simple blink + serial output
 - Push code to GitHub
 ## Tools:
-- ESP32-WROOM-32
+- ESP32-WROOM-32 ($10)
 - PlatformIO in VS Code
 - Host OS: Linux (based on /dev/ttyUSB0 and udev warning)
 - Git + GitHub for version control
+![esp32 blink](./images/esp32.jpg)
 ## Steps:
-1. Installed PlatformIO extension in VS Code
-2. Created a new PlatformIO project
+1. Installed **PlatformIO** extension in VS Code
+2. Created a new PlatformIO project by open the **PlatformIO Home** tab and click **New Project**, fill in with the following info and click **Finish**
    - Board: DOIT DEVKIT V1 variant
    - Framework: arduino
    - Project name: baby_tracker
+   - Location: your preferred location
 ## Verified project structure created by PlatformIO:
 ```
 baby_tracker/
@@ -40,6 +42,9 @@ void loop() {
 }
 ```
 ### Faced flash error during first upload:
+ - Plug in your ESP32 via USB
+ - Click the ✓ “Build” icon (bottom bar)
+ - Click the → “Upload” icon (right beside Build)
 ```
 A fatal error occurred: Unable to verify flash chip connection (No serial data received.)
 ```
@@ -48,14 +53,15 @@ Successfully uploaded firmware again by just click Upload button again:
 [SUCCESS] Took 6.58 seconds
 ```
 ## Opened serial monitor and confirmed output:
+Click the Serial Monitor icon to check output
 ```
 ESP32 Blink Test Starting...
 LED ON
 LED OFF
 ```
 ## Confirmed onboard LED is blinking
-
 Restarted board using EN button to re-trigger serial output
+![esp32 blink](./images/esp32_init_blink.jpg)
 
 ## Results:
 - ESP32 verified working
