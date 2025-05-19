@@ -143,6 +143,7 @@ Your goal: help caregivers **log**, **track**, and **analyze** daily baby activi
 ### Suggested Next Step (Day 3):
 > **"Store logs persistently in SPIFFS filesystem"**
 Why? Right now, logs are only printed. If you unplug, they're gone.
+---
 📦 Tomorrow’s goal:
 * Save each log line to a file (`log.txt`)
 * One line per event with timestamp + activity
