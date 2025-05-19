@@ -1,28 +1,37 @@
 #include <Arduino.h>
 
-// put function declarations here:
-// int myFunction(int, int);
+struct Button {
+  const char* name; // Name of the button
+  int pin; // Pin number for the button
+  int state; // Current state of the button
+};
+
+Button buttons[] = {
+  {"Blue Button", 4, LOW},
+  {"Red Button", 19, LOW},
+  {"Green Button", 5, LOW},
+  {"Yellow Button", 21, LOW},
+  {"Black Button", 18, LOW}
+};
 
 void setup() {
-  // put your setup code here, to run once:
-  // int result = myFunction(2, 3);
-
-  pinMode(LED_BUILTIN, OUTPUT); // Initialize the LED_BUILTIN pin as an output
   Serial.begin(115200); // Initialize serial communication at 115200 bps
-  Serial.println("Hello, world!"); // Print a message to the serial monitor
+  for (auto &bn : buttons) {
+    pinMode(bn.pin, INPUT);
+  }
+  Serial.println("Setup complete. Waiting for button presses...");
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  digitalWrite(LED_BUILTIN, HIGH); // Turn the LED on (HIGH is the voltage level)
-  Serial.println("LED is ON"); // Print a message to the serial monitor
-  delay(1000); // Wait for a second
-  digitalWrite(LED_BUILTIN, LOW); // Turn the LED off by making the voltage LOW
-  Serial.println("LED is OFF"); // Print a message to the serial monitor
-  delay(1000); // Wait for a second
+  for (auto &bn : buttons) {
+    int currentState = digitalRead(bn.pin); // Read the current state of the button
+    if (currentState != bn.state) { // Check if the state has changed
+      bn.state = currentState; // Update the state
+      if (currentState == HIGH) { // If the button is pressed
+        unsigned long now = millis();
+        Serial.printf("%s button pressed at %lus\n", bn.name, now / 1000); // Print the button name and time
+      }
+    }
+  }
+  delay(100); // Wait for a short period to avoid bouncing
 }
-
-// // put function definitions here:
-// int myFunction(int x, int y) {
-//   return x + y;
-// }

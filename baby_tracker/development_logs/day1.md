@@ -9,7 +9,7 @@
 - PlatformIO in VS Code
 - Host OS: Linux (based on /dev/ttyUSB0 and udev warning)
 - Git + GitHub for version control
-![esp32 blink](./images/esp32.jpg)
+- ![esp32 blink](./images/esp32.jpg)
 ## Steps:
 1. Installed **PlatformIO** extension in VS Code
 2. Created a new PlatformIO project by open the **PlatformIO Home** tab and click **New Project**, fill in with the following info and click **Finish**
@@ -42,9 +42,9 @@ void loop() {
 }
 ```
 ### Faced flash error during first upload:
- - Plug in your ESP32 via USB
- - Click the ✓ “Build” icon (bottom bar)
- - Click the → “Upload” icon (right beside Build)
+- Plug in your ESP32 via USB
+- Click the ✓ “Build” icon (bottom bar)
+- Click the → “Upload” icon (right beside Build)
 ```
 A fatal error occurred: Unable to verify flash chip connection (No serial data received.)
 ```
