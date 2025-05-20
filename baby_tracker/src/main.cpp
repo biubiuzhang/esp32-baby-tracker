@@ -1,10 +1,14 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <time.h>
+#include "SPIFFS.h"
+#include <ESPAsyncWebServer.h>
+#include "esp_system.h"
 
+AsyncWebServer server(80);
 
-const char* ssid = "###"; // Replace with your WiFi SSID
-const char* password = "###"; // Replace with your WiFi password
+const char* ssid = "Sun"; // Replace with your WiFi SSID
+const char* password = "peaceandlove"; // Replace with your WiFi password
 
 const char* ntpServer = "pool.ntp.org"; // NTP server
 const long gmtOffset_sec = 8 * 3600; // GMT offset in seconds, GMT+8 for China
@@ -48,9 +52,78 @@ Button buttons[] = {
 };
 
 void setup() {
-  Serial.begin(115200); // Initialize serial communication at 115200 bps
+  // Initialize serial communication at 115200 bps
+  Serial.begin(115200);
+
+  // Setup WiFi and NTP
   connectToWiFi(); // Connect to WiFi
   setupTime(); // Setup time using NTP
+
+  // Initialize SPIFFS
+  if (!SPIFFS.begin(true)) {
+    Serial.println("Failed to mount file system");
+    return;
+  }
+  Serial.println("SPIFFS mounted successfully");
+
+  // Initialize web server
+  server.on("/log.txt", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!SPIFFS.exists("/log.txt")) {
+      request->send(404, "text/plain", "Log File Not Found");
+    } else {
+      request->send(SPIFFS, "/log.txt", "text/plain");
+    }
+  });
+
+  server.begin(); // Start the server
+  Serial.println("Web server started: http://" + WiFi.localIP().toString() + "/log.txt");
+
+  // Record each boot
+  esp_reset_reason_t resetReason = esp_reset_reason();
+  String resetReasonString;
+
+  switch (resetReason) {
+    case ESP_RST_POWERON:
+      resetReasonString = "Power on";
+      break;
+    case ESP_RST_EXT:
+      resetReasonString = "External reset";
+      break;
+    case ESP_RST_SW:
+      resetReasonString = "Software reset";
+      break;
+    case ESP_RST_DEEPSLEEP:
+      resetReasonString = "Deep sleep wakeup";
+      break;
+    case ESP_RST_BROWNOUT:
+      resetReasonString = "Brownout reset";
+      break;
+    case ESP_RST_SDIO:
+      resetReasonString = "SDIO reset";
+      break;
+    default:
+      resetReasonString = "Unknown reason";
+  }
+
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 1000)) {
+    char timeString[64];
+    strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    String logEntry = String(timeString) + " [Boot] " + resetReasonString + "\n";
+    Serial.print(logEntry);
+    File logFile = SPIFFS.open("/log.txt", "a");
+    if (!logFile) {
+      Serial.println("Failed to open log file for writing");
+    } else {
+      logFile.print(logEntry);
+      logFile.flush();
+      logFile.close();
+    }
+  } else {
+    Serial.println("Failed to get time");
+  }
+
+  // Initialize button pins
   for (auto &bn : buttons) {
     pinMode(bn.pin, INPUT);
   }
@@ -67,13 +140,21 @@ void loop() {
         if (getLocalTime(&timeinfo, 1000)) {
           char timeString[64];
           strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-          Serial.printf("📌 %s button pressed at %s\n", bn.name, timeString);
+          String logEntry = String(timeString) + " " + String(bn.name) + "\n";
+          Serial.print(logEntry);
+          File logFile = SPIFFS.open("/log.txt", "a");
+          if (!logFile) {
+            Serial.println("Failed to open log file for writing");
+          } else {
+            logFile.print(logEntry);
+            logFile.flush();
+            logFile.close();
+          }
         } else {
           Serial.printf("📌 %s button pressed, but failed to get time\n", bn.name);
         }
       }
     }
   }
-
   delay(100); // debounce
 }
