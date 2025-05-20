@@ -7,13 +7,28 @@
 
 AsyncWebServer server(80);
 
-const char* ssid = "Sun"; // Replace with your WiFi SSID
-const char* password = "peaceandlove"; // Replace with your WiFi password
+const char* ssid = "Sun";
+const char* password = "peaceandlove";
 
-const char* ntpServer = "pool.ntp.org"; // NTP server
-const long gmtOffset_sec = 8 * 3600; // GMT offset in seconds, GMT+8 for China
-const int daylightOffset_sec = 0; // No daylight saving time
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 8 * 3600;
+const int daylightOffset_sec = 0;
 
+struct Button {
+  const char* name;
+  int pin;
+  int state;
+};
+
+Button buttons[] = {
+  {"Blue", 4, LOW},
+  {"Red", 19, LOW},
+  {"Green", 5, LOW},
+  {"Yellow", 21, LOW},
+  {"Black", 18, LOW}
+};
+
+unsigned long bluePressStart = 0;
 
 void connectToWiFi() {
   Serial.print("Connecting to WiFi");
@@ -30,131 +45,169 @@ void setupTime() {
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   Serial.println("Waiting for NTP time sync...");
   time_t now = time(nullptr);
-  while (now < 8 * 3600 * 2) { // Wait for time to be set
+  while (now < 8 * 3600 * 2) {
     delay(1000);
     Serial.print(".");
     now = time(nullptr);
   }
   Serial.println("NTP time sync complete");
 }
-struct Button {
-  const char* name; // Name of the button
-  int pin; // Pin number for the button
-  int state; // Current state of the button
-};
 
-Button buttons[] = {
-  {"Blue", 4, LOW},
-  {"Red", 19, LOW},
-  {"Green", 5, LOW},
-  {"Yellow", 21, LOW},
-  {"Black", 18, LOW}
-};
+String getLogFilename() {
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 1000)) {
+    char date[16];
+    strftime(date, sizeof(date), "%Y-%m-%d", &timeinfo);
+    return "/log-" + String(date) + ".txt";
+  }
+  return "/log-unknown.txt";
+}
+
+void logEvent(const String& event) {
+  String filename = getLogFilename();
+  File logFile = SPIFFS.open(filename, FILE_APPEND);
+  if (logFile) {
+    logFile.print(event);
+    logFile.close();
+  } else {
+    Serial.println("Failed to open log file for writing");
+  }
+}
 
 void setup() {
-  // Initialize serial communication at 115200 bps
   Serial.begin(115200);
+  connectToWiFi();
+  setupTime();
 
-  // Setup WiFi and NTP
-  connectToWiFi(); // Connect to WiFi
-  setupTime(); // Setup time using NTP
-
-  // Initialize SPIFFS
   if (!SPIFFS.begin(true)) {
     Serial.println("Failed to mount file system");
     return;
   }
   Serial.println("SPIFFS mounted successfully");
 
-  // Initialize web server
-  server.on("/log.txt", HTTP_GET, [](AsyncWebServerRequest *request) {
-    if (!SPIFFS.exists("/log.txt")) {
-      request->send(404, "text/plain", "Log File Not Found");
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head><body>";
+    html += "<h3>📝 Available log files:</h3><ul>";
+  
+    File root = SPIFFS.open("/");
+    File file = root.openNextFile();
+    while (file) {
+      String name = String(file.name());
+      Serial.println("Found file: " + name);  // for debugging
+  
+      if (name.startsWith("log-") && name.endsWith(".txt")) {
+        html += "<li><a href=\"/log?file=" + name + "\">" + name + "</a></li>";
+      }
+  
+      file = root.openNextFile();
+    }
+  
+    html += "</ul></body></html>";
+    request->send(200, "text/html; charset=utf-8", html);
+  });      
+  
+  // Serve log file by name
+  server.on("/log", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!request->hasParam("file")) {
+      request->send(400, "text/plain", "Missing file param");
+      return;
+    }
+    String filename = "/" + request->getParam("file")->value();
+    if (!SPIFFS.exists(filename)) {
+      request->send(404, "text/plain", "File not found");
+      return;
+    }
+    request->send(SPIFFS, filename, "text/plain");
+  });
+
+  // Clear log file by name
+  server.on("/clear-log", HTTP_GET, [](AsyncWebServerRequest *request) {
+    if (!request->hasParam("file")) {
+      request->send(400, "text/plain", "Missing file param");
+      return;
+    }
+    String filename = "/" + request->getParam("file")->value();
+    if (SPIFFS.exists(filename)) {
+      SPIFFS.remove(filename);
+      request->send(200, "text/plain", "Deleted: " + filename);
     } else {
-      request->send(SPIFFS, "/log.txt", "text/plain");
+      request->send(404, "text/plain", "File not found");
     }
   });
 
-  server.begin(); // Start the server
-  Serial.println("Web server started: http://" + WiFi.localIP().toString() + "/log.txt");
+  server.begin();
+  Serial.println("Web server started: http://" + WiFi.localIP().toString());
 
-  // Record each boot
-  esp_reset_reason_t resetReason = esp_reset_reason();
-  String resetReasonString;
-
-  switch (resetReason) {
-    case ESP_RST_POWERON:
-      resetReasonString = "Power on";
-      break;
-    case ESP_RST_EXT:
-      resetReasonString = "External reset";
-      break;
-    case ESP_RST_SW:
-      resetReasonString = "Software reset";
-      break;
-    case ESP_RST_DEEPSLEEP:
-      resetReasonString = "Deep sleep wakeup";
-      break;
-    case ESP_RST_BROWNOUT:
-      resetReasonString = "Brownout reset";
-      break;
-    case ESP_RST_SDIO:
-      resetReasonString = "SDIO reset";
-      break;
-    default:
-      resetReasonString = "Unknown reason";
+  // Record reset reason
+  esp_reset_reason_t reason = esp_reset_reason();
+  String reasonStr;
+  switch (reason) {
+    case ESP_RST_POWERON:   reasonStr = "Power-on"; break;
+    case ESP_RST_EXT:       reasonStr = "External reset"; break;
+    case ESP_RST_SW:        reasonStr = "Software reset"; break;
+    case ESP_RST_DEEPSLEEP: reasonStr = "Deep sleep wakeup"; break;
+    default:                reasonStr = "Other reset"; break;
   }
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo, 1000)) {
-    char timeString[64];
-    strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-    String logEntry = String(timeString) + " [Boot] " + resetReasonString + "\n";
+    char timeStr[64];
+    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    String logEntry = String(timeStr) + " [Boot] " + reasonStr + "\n";
     Serial.print(logEntry);
-    File logFile = SPIFFS.open("/log.txt", "a");
-    if (!logFile) {
-      Serial.println("Failed to open log file for writing");
-    } else {
-      logFile.print(logEntry);
-      logFile.flush();
-      logFile.close();
-    }
-  } else {
-    Serial.println("Failed to get time");
+    logEvent(logEntry);
   }
 
-  // Initialize button pins
   for (auto &bn : buttons) {
     pinMode(bn.pin, INPUT);
   }
+
   Serial.println("Setup complete. Waiting for button presses...");
 }
 
 void loop() {
-  for (auto &bn : buttons) {
-    int currentState = digitalRead(bn.pin); // Read the current state of the button
-    if (currentState != bn.state) { // Check if the state has changed
-      bn.state = currentState; // Update the state
-      if (currentState == HIGH) { // Button pressed
+  // 🧹 Check for Blue + Red pressed together
+  int blue = digitalRead(4);
+  int yellow = digitalRead(21);
+
+  static unsigned long lastTrigger = 0;
+  if (blue == HIGH && yellow == HIGH && millis() - lastTrigger > 2000) {
+    Serial.println("🧹 Combo triggered: clearing logs...");
+
+    File root = SPIFFS.open("/");
+    File file = root.openNextFile();
+    while (file) {
+      String name = file.name();
+      if (name.startsWith("log-")) {
+        SPIFFS.remove("/" + name);
+        Serial.println("🧹 Deleted /" + name);
+      }
+      file = root.openNextFile();
+    }
+
+    lastTrigger = millis(); // prevent retriggering
+  }
+
+  // 📝 Normal button press logging
+  for (int i = 0; i < sizeof(buttons)/sizeof(Button); ++i) {
+    Button &bn = buttons[i];
+    int currentState = digitalRead(bn.pin);
+    if (currentState != bn.state) {
+      bn.state = currentState;
+      if (currentState == HIGH) {
         struct tm timeinfo;
         if (getLocalTime(&timeinfo, 1000)) {
-          char timeString[64];
-          strftime(timeString, sizeof(timeString), "%Y-%m-%d %H:%M:%S", &timeinfo);
-          String logEntry = String(timeString) + " " + String(bn.name) + "\n";
+          char timeStr[64];
+          strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+          String logEntry = String(timeStr) + " " + bn.name + "\n";
           Serial.print(logEntry);
-          File logFile = SPIFFS.open("/log.txt", "a");
-          if (!logFile) {
-            Serial.println("Failed to open log file for writing");
-          } else {
-            logFile.print(logEntry);
-            logFile.flush();
-            logFile.close();
-          }
+          logEvent(logEntry);
         } else {
           Serial.printf("📌 %s button pressed, but failed to get time\n", bn.name);
         }
       }
     }
   }
+
   delay(100); // debounce
 }
