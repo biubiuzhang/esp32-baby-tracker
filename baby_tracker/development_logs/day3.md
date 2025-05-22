@@ -67,9 +67,6 @@
 | 🤔 Long-press not reliable     | Replaced with dual-button short press (Blue + Red)                   |
 | 🌀 Unicode render glitch (ðŸ…) | Fixed with proper UTF-8 headers and meta tag in HTML                 |
 ## Next Steps (Planned for Day 4)
-* 📂 Improve UI: add file sizes, delete buttons next to logs
-* 📲 Build a mobile-friendly UI (HTML+JS) to view logs from phone
-* 📉 Add a lightweight dashboard for daily stats (feeds/poops/etc.)
-* ⌛ Implement debounce logic for noisy button inputs
-* ☁️ Enable cloud push from Raspberry Pi (e.g., upload to Google Drive)
-* 🔐 Add optional access control to the web server
+* Improve UI: add file sizes, delete buttons next to logs
+* Implement debounce logic for noisy button inputs
+* Enable cloud push from Raspberry Pi (e.g., upload to Google Drive)

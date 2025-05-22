@@ -64,11 +64,6 @@ Today's progress marks the beginning of a **scalable, offline-capable, and secur
 
 ### UI Enhancements:
 
-* [ ] Start integrating **charts** on the React frontend to show:
-
-  * Button press frequency
-  * Last activity per button
-* [ ] Add **calendar selection** to view historical logs via MQTT or database.
 * [ ] Add MQTT status indicator on the frontend (e.g., green dot = connected).
 
 ### Testing / Maintenance:

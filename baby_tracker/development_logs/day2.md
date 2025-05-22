@@ -145,6 +145,6 @@ Your goal: help caregivers **log**, **track**, and **analyze** daily baby activi
 Why? Right now, logs are only printed. If you unplug, they're gone.
 ---
 📦 Tomorrow’s goal:
-* Save each log line to a file (`log.txt`)
-* One line per event with timestamp + activity
-* View logs via serial or basic web interface later
+* ~~Save each log line to a file (`log.txt`)~~
+* ~~One line per event with timestamp + activity~~
+* ~~View logs via serial or basic web interface later~~
