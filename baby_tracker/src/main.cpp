@@ -14,7 +14,7 @@ PubSubClient mqttClient(espClient);
 const char* ssid = "Sun";
 const char* password = "peaceandlove";
 
-const char* mqtt_server = "broker.hivemq.com";
+const char* mqtt_server = "rpi.local";
 const int mqtt_port = 1883;
 const char* mqtt_topic = "esp32/babytracker/logs";
 
