@@ -112,7 +112,6 @@ void showOnDisplay(const String& text) {
   tft.setCursor(0, 0);
   tft.setTextColor(ST77XX_WHITE);
   tft.setTextSize(2);
-  tft.print("Last: ");
   tft.println(text);
 }
 
@@ -142,7 +141,6 @@ void logEvent(const String& rawTextLog) {
       mqttClient.publish(mqtt_topic, jsonPayload.c_str());
     }
 
-    showOnDisplay(color);
   } else {
     Serial.println("Failed to parse log entry for JSON MQTT");
   }
@@ -151,14 +149,17 @@ void logEvent(const String& rawTextLog) {
 void setup() {
   Serial.begin(115200);
 
-  // TFT display
+  // === TFT display welcome ===
   tft.init(240, 240);
   tft.setRotation(1);
   tft.fillScreen(ST77XX_BLACK);
   tft.setCursor(10, 10);
   tft.setTextSize(2);
   tft.setTextColor(ST77XX_WHITE);
-  tft.println("👶 Baby Tracker");
+  tft.println("Welcome!");
+
+  // Optional: wait briefly to stabilize pins before reading
+  delay(500);  // allow GPIOs to settle
 
   connectToWiFi();
   setupTime();
@@ -169,7 +170,7 @@ void setup() {
     return;
   }
 
-  // Web Server
+  // === Web server setup ===
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     String html = "<!DOCTYPE html><html><head><meta charset=\"UTF-8\"></head><body>";
     html += "<h3>📝 Available log files:</h3><ul>";
@@ -216,6 +217,7 @@ void setup() {
   server.begin();
   Serial.println("Web server started: http://" + WiFi.localIP().toString());
 
+  // === Boot reason log ===
   esp_reset_reason_t reason = esp_reset_reason();
   String reasonStr;
   switch (reason) {
@@ -235,8 +237,9 @@ void setup() {
     logEvent(logEntry);
   }
 
+  // === Pin configuration ===
   for (auto &bn : buttons) {
-    pinMode(bn.pin, INPUT);
+    pinMode(bn.pin, INPUT_PULLDOWN);  // ✅ Prevent floating HIGH at boot
   }
 
   Serial.println("Setup complete. Waiting for button presses...");
@@ -250,12 +253,31 @@ void loop() {
     lastMqttReconnect = millis();
   }
 
-  int blue = digitalRead(4);
-  int yellow = digitalRead(21);
+  // === Simultaneous Combo Detection (Blue + Black) ===
+  static bool prevBlue = false;
+  static bool prevBlack = false;
+  static unsigned long lastBluePress = ULONG_MAX;
+  static unsigned long lastBlackPress = ULONG_MAX;
+  static bool logsCleared = false;
 
-  static unsigned long lastTrigger = 0;
-  if (blue == HIGH && yellow == HIGH && millis() - lastTrigger > 2000) {
+  bool blue = digitalRead(12) == HIGH;
+  bool black = digitalRead(33) == HIGH;
+  unsigned long now = millis();
+
+  // Update press timestamps on fresh press
+  if (blue && !prevBlue) {
+    lastBluePress = now;
+  }
+  if (black && !prevBlack) {
+    lastBlackPress = now;
+  }
+
+  // Clear logs only if both pressed within 500ms of each other
+  if (blue && black &&
+      abs((long)(lastBluePress - lastBlackPress)) <= 500 &&
+      !logsCleared) {
     Serial.println("🧹 Combo triggered: clearing logs...");
+    showOnDisplay("Logs cleared");
 
     File root = SPIFFS.open("/");
     File file = root.openNextFile();
@@ -268,10 +290,63 @@ void loop() {
       file = root.openNextFile();
     }
 
-    lastTrigger = millis(); // prevent retriggering
+    logsCleared = true;
   }
 
-  for (int i = 0; i < sizeof(buttons)/sizeof(Button); ++i) {
+  // Reset after both are released
+  if (!blue && !black) {
+    logsCleared = false;
+  }
+
+  prevBlue = blue;
+  prevBlack = black;
+
+
+  // === Simultaneous Combo Detection (Red + Yellow) ===
+  static bool prevRed = false;
+  static bool prevYellow = false;
+  static unsigned long lastRedPress = ULONG_MAX;
+  static unsigned long lastYellowPress = ULONG_MAX;
+  static bool buttonPressed = false;
+
+  bool red = digitalRead(19) == HIGH;
+  bool yellow = digitalRead(21) == HIGH;
+
+  // Update press timestamps on fresh press
+  if (red && !prevRed) {
+    lastRedPress = now;
+  }
+  if (yellow && !prevYellow) {
+    lastYellowPress = now;
+  }
+
+  // Send pee+poo+1 diaper only if both pressed within 500ms of each other
+  if (red && yellow &&
+      abs((long)(lastRedPress - lastYellowPress)) <= 500 &&
+      !buttonPressed) {
+    Serial.println("🧹 Combo triggered: pee+poo...");
+    showOnDisplay("Pee+Poo");
+
+    struct tm timeinfo;
+    if (getLocalTime(&timeinfo, 1000)) {
+      char timeStr[64];
+      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+      String logEntry = String(timeStr) + " Diaper-1\n";
+      Serial.print(logEntry);
+      logEvent(logEntry);
+    }
+  }
+
+  // Reset after both are released
+  if (!red && !yellow) {
+    buttonPressed = false;
+  }
+
+  prevRed = red;
+  prevYellow = yellow;
+
+  // === Normal Button Handling ===
+  for (int i = 0; i < sizeof(buttons) / sizeof(Button); ++i) {
     Button &bn = buttons[i];
     int currentState = digitalRead(bn.pin);
     if (currentState != bn.state) {
@@ -284,6 +359,7 @@ void loop() {
           String logEntry = String(timeStr) + " " + bn.name + "\n";
           Serial.print(logEntry);
           logEvent(logEntry);
+          showOnDisplay(bn.name);
         } else {
           Serial.printf("📌 %s button pressed, but failed to get time\n", bn.name);
         }
