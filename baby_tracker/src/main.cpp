@@ -4,6 +4,7 @@
 #include "SPIFFS.h"
 #include <ESPAsyncWebServer.h>
 #include <PubSubClient.h>
+#include <ESPmDNS.h> 
 
 #include "esp_system.h"
 
@@ -40,14 +41,26 @@ unsigned long bluePressStart = 0;
 unsigned long lastMqttReconnect = 0;
 
 void connectToWiFi() {
+  // ✅ Set the desired hostname before connecting
+  WiFi.setHostname("esp32");  // This makes it resolvable as esp32.local
+
   Serial.print("Connecting to WiFi");
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(1000);
     Serial.print(".");
   }
-  Serial.println("\nConnected to WiFi");
+
+  Serial.println("\n✅ Connected to WiFi");
+  Serial.print("📡 IP Address: ");
   Serial.println(WiFi.localIP());
+
+  // ✅ Start mDNS responder
+  if (MDNS.begin("esp32")) {  // must match WiFi.setHostname
+    Serial.println("🌐 mDNS responder started as esp32.local");
+  } else {
+    Serial.println("⚠️ Error starting mDNS");
+  }
 }
 
 void setupTime() {
@@ -93,18 +106,33 @@ String getLogFilename() {
   return "/log-unknown.txt";
 }
 
-void logEvent(const String& event) {
+void logEvent(const String& rawTextLog) {
   String filename = getLogFilename();
   File logFile = SPIFFS.open(filename, FILE_APPEND);
   if (logFile) {
-    logFile.print(event);
+    logFile.print(rawTextLog);
     logFile.close();
   } else {
     Serial.println("Failed to open log file for writing");
   }
 
-  if (mqttClient.connected()) {
-    mqttClient.publish(mqtt_topic, event.c_str());
+  int firstSpace = rawTextLog.indexOf(' ');
+  int secondSpace = rawTextLog.indexOf(' ', firstSpace + 1);
+  int newlinePos = rawTextLog.indexOf('\n');
+
+  if (firstSpace > 0 && secondSpace > firstSpace && newlinePos > secondSpace) {
+    String date = rawTextLog.substring(0, firstSpace);
+    String time = rawTextLog.substring(firstSpace + 1, secondSpace);
+    String color = rawTextLog.substring(secondSpace + 1, newlinePos);
+    String timestamp = date + " " + time;
+
+    String jsonPayload = "{\"timestamp\":\"" + timestamp + "\",\"color\":\"" + color + "\"}";
+
+    if (mqttClient.connected()) {
+      mqttClient.publish(mqtt_topic, jsonPayload.c_str());
+    }
+  } else {
+    Serial.println("Failed to parse log entry for JSON MQTT");
   }
 }
 
