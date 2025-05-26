@@ -68,5 +68,5 @@
 | 🌀 Unicode render glitch (ðŸ…) | Fixed with proper UTF-8 headers and meta tag in HTML                 |
 ## Next Steps (Planned for Day 4)
 * Improve UI: add file sizes, delete buttons next to logs
-* Implement debounce logic for noisy button inputs
+* ~~Implement debounce logic for noisy button inputs~~
 * Enable cloud push from Raspberry Pi (e.g., upload to Google Drive)

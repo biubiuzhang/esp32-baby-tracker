@@ -9,7 +9,7 @@
 - PlatformIO in VS Code
 - Host OS: Linux (based on /dev/ttyUSB0 and udev warning)
 - Git + GitHub for version control
-- ![esp32 blink](./images/esp32.jpg)
+- ![esp32 board](./images/esp32.jpg)
 ## Steps:
 1. Installed **PlatformIO** extension in VS Code
 2. Created a new PlatformIO project by open the **PlatformIO Home** tab and click **New Project**, fill in with the following info and click **Finish**

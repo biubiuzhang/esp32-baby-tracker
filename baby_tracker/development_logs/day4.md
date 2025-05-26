@@ -56,15 +56,15 @@ Today's progress marks the beginning of a **scalable, offline-capable, and secur
 
 ### Raspberry Pi / Flask Dashboard:
 
-* [ ] Add a **Flask MQTT subscriber** to receive button events and:
+* [ ] ~~Add a **Flask MQTT subscriber** to receive button events and:~~
 
-  * Save them to PostgreSQL.
-  * Display them on the web frontend in real time.
+  * ~~Save them to PostgreSQL.~~
+  * ~~Display them on the web frontend in real time.~~
 * [ ] Log MQTT errors or disconnects to `/var/log/mosquitto/mosquitto.log` and monitor them.
 
 ### UI Enhancements:
 
-* [ ] Add MQTT status indicator on the frontend (e.g., green dot = connected).
+* [ ] ~~Add MQTT status indicator on the frontend (e.g., green dot = connected).~~
 
 ### Testing / Maintenance:
 
