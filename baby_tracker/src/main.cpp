@@ -245,29 +245,31 @@ void setup() {
   Serial.println("Setup complete. Waiting for button presses...");
 }
 
-void loop() {
-  mqttClient.loop();
+// === State tracking ===
+static bool preStates[5] = {false};
+static unsigned long lastBluePress = ULONG_MAX;
+static unsigned long lastBlackPress = ULONG_MAX;
+static bool logsCleared = false;
 
-  if (!mqttClient.connected() && millis() - lastMqttReconnect > 5000) {
-    reconnectMQTT();
-    lastMqttReconnect = millis();
+static bool pendingRed = false;
+static bool pendingYellow = false;
+static unsigned long redPressTime = 0;
+static unsigned long yellowPressTime = 0;
+static bool comboFired = false;
+
+void logAndDisplay(const char* label) {
+  struct tm timeinfo;
+  if (getLocalTime(&timeinfo, 1000)) {
+    char timeStr[64];
+    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    String logEntry = String(timeStr) + " " + String(label) + "\n";
+    Serial.print(logEntry);
+    logEvent(logEntry);
+    showOnDisplay(label);
   }
+}
 
-  static bool preStates[5] = {false};
-  static unsigned long lastBluePress = ULONG_MAX;
-  static unsigned long lastBlackPress = ULONG_MAX;
-  static bool logsCleared = false;
-
-  unsigned long now = millis();
-
-  // === Read button states ===
-  bool blue = digitalRead(12) == HIGH;
-  bool red = digitalRead(19) == HIGH;
-  bool green = digitalRead(27) == HIGH;
-  bool yellow = digitalRead(21) == HIGH;
-  bool black = digitalRead(33) == HIGH;
-
-  // === Blue + Black Combo ===
+void handleBlueBlackCombo(bool blue, bool black, unsigned long now) {
   if (blue && !preStates[0]) lastBluePress = now;
   if (black && !preStates[4]) lastBlackPress = now;
 
@@ -291,48 +293,24 @@ void loop() {
     logsCleared = true;
   }
 
-  if (!blue && !black) {
-    logsCleared = false;
-  }
+  if (!blue && !black) logsCleared = false;
 
-  // === Single Blue press ===
   if (blue && !black && !logsCleared && !preStates[0]) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 1000)) {
-      char timeStr[64];
-      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      String logEntry = String(timeStr) + " Blue\n";
-      Serial.print(logEntry);
-      logEvent(logEntry);
-      showOnDisplay("Sleeping...");
-    }
+    logAndDisplay("Blue");
   }
 
-  // === Single Black press ===
   if (black && !blue && !logsCleared && !preStates[4]) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 1000)) {
-      char timeStr[64];
-      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      String logEntry = String(timeStr) + " Black\n";
-      Serial.print(logEntry);
-      logEvent(logEntry);
-      showOnDisplay("Stop");
-    }
+    logAndDisplay("Black");
   }
+}
 
-  // === Red + Yellow Combo Detection ===
-  static bool pendingRed = false;
-  static bool pendingYellow = false;
-  static unsigned long redPressTime = 0;
-  static unsigned long yellowPressTime = 0;
-  static bool comboFired = false;
-
+void handleRedYellowCombo(bool red, bool yellow, unsigned long now) {
   if (red && !preStates[1]) {
     redPressTime = now;
     pendingRed = true;
     comboFired = false;
   }
+
   if (yellow && !preStates[3]) {
     yellowPressTime = now;
     pendingYellow = true;
@@ -342,66 +320,59 @@ void loop() {
   if (pendingRed && pendingYellow &&
       abs((long)(redPressTime - yellowPressTime)) <= 200 &&
       !comboFired) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 1000)) {
-      char timeStr[64];
-      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      String logEntry = String(timeStr) + " Pee-Poo\n";
-      Serial.print(logEntry);
-      logEvent(logEntry);
-      showOnDisplay("Pee-Poo-Diaper");
-    }
+    logAndDisplay("Pee-Poo");
     pendingRed = pendingYellow = false;
     comboFired = true;
   }
 
   if (pendingRed && now - redPressTime > 200) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 1000)) {
-      char timeStr[64];
-      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      String logEntry = String(timeStr) + " Red\n";
-      Serial.print(logEntry);
-      logEvent(logEntry);
-      showOnDisplay("Poo-Diaper");
-    }
+    logAndDisplay("Red");
     pendingRed = false;
   }
 
   if (pendingYellow && now - yellowPressTime > 200) {
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 1000)) {
-      char timeStr[64];
-      strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-      String logEntry = String(timeStr) + " Yellow\n";
-      Serial.print(logEntry);
-      logEvent(logEntry);
-      showOnDisplay("Pee-Diaper");
-    }
+    logAndDisplay("Yellow");
     pendingYellow = false;
   }
+}
 
-  // === Single Green press ===
-  if (green != preStates[2]) {
-    if (green) {
-      struct tm timeinfo;
-      if (getLocalTime(&timeinfo, 1000)) {
-        char timeStr[64];
-        strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-        String logEntry = String(timeStr) + " Green\n";
-        Serial.print(logEntry);
-        logEvent(logEntry);
-        showOnDisplay("Feeding...");
+void handleSingleButtonPresses(bool states[]) {
+  for (int i = 0; i < 5; ++i) {
+    if (i == 0 || i == 4) continue; // skip blue/black here (handled by combo)
+    if (i == 1 || i == 3) continue; // skip red/yellow (handled with delay)
+
+    if (states[i] != preStates[i]) {
+      if (states[i]) {
+        logAndDisplay(buttons[i].name);
       }
     }
   }
+}
 
-  // === Update preStates at the very end ===
-  preStates[0] = blue;
-  preStates[1] = red;
-  preStates[2] = green;
-  preStates[3] = yellow;
-  preStates[4] = black;
+void loop() {
+  mqttClient.loop();
+  if (!mqttClient.connected() && millis() - lastMqttReconnect > 5000) {
+    reconnectMQTT();
+    lastMqttReconnect = millis();
+  }
 
-  delay(100); // debounce
+  unsigned long now = millis();
+
+  // Read button states
+  bool states[5];
+  for (int i = 0; i < 5; ++i) {
+    states[i] = digitalRead(buttons[i].pin) == HIGH;
+  }
+
+  // Handle all button behavior
+  handleBlueBlackCombo(states[0], states[4], now);
+  handleRedYellowCombo(states[1], states[3], now);
+  handleSingleButtonPresses(states);
+
+  // Update all preStates at the end
+  for (int i = 0; i < 5; ++i) {
+    preStates[i] = states[i];
+  }
+
+  delay(100);
 }

@@ -1,0 +1,12 @@
+🍼 Baby Tracker Activity Mapping
+
+Button	GPIO	Action
+Blue	12	    Feed Start
+Red	    19	    Sleep Start
+Green	27	    Pee → +1 pee, +1 diaper
+Yellow	21	    Poo → +1 poo, +1 diaper
+Black	33	    Stop
+Combo	12+21	Clear all logs (Blue + Yellow)
+Combo   27+21   +1 pee, +1 poo, +1 diaper (Green + Yellow)
+Combo   33+12   Stop feeding
+Combo   33+19   Stop sleeping
