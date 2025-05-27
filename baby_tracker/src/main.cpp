@@ -7,6 +7,7 @@
 #include <ESPmDNS.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_ST7789.h>
+#include <ArduinoJson.h>
 
 // ==== Display setup ====
 #define TFT_CS     15
@@ -14,23 +15,25 @@
 #define TFT_DC     2
 Adafruit_ST7789 tft = Adafruit_ST7789(TFT_CS, TFT_DC, TFT_RST);
 
-// ==== Network & MQTT ====
-AsyncWebServer server(80);
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
-
 const char* ssid = "Sun";
 const char* password = "peaceandlove";
 
+AsyncWebServer server(80);
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
 const char* mqtt_server = "rpi.local";
 const int mqtt_port = 1883;
 const char* mqtt_topic = "esp32/babytracker/logs";
+unsigned long lastMqttReconnect = 0;
 
 const char* ntpServer = "pool.ntp.org";
 const long gmtOffset_sec = 8 * 3600;
 const int daylightOffset_sec = 0;
 
-// ==== Button mapping ====
+static bool preStates[5] = {false};
+bool feeding = false;
+bool sleeping = false;
+
 struct Button {
   const char* name;
   int pin;
@@ -39,13 +42,12 @@ struct Button {
 
 Button buttons[] = {
   {"Blue", 12, LOW},
-  {"Red", 19, LOW},
   {"Green", 27, LOW},
+  {"Red", 19, LOW},
   {"Yellow", 21, LOW},
   {"Black", 33, LOW}
 };
 
-unsigned long lastMqttReconnect = 0;
 
 void connectToWiFi() {
   WiFi.setHostname("esp32");
@@ -146,6 +148,25 @@ void logEvent(const String& rawTextLog) {
   }
 }
 
+void logEventJson(JsonDocument& doc) {
+  char buffer[256];
+  serializeJson(doc, buffer);
+  Serial.println(buffer);
+
+  // Save to SPIFFS
+  String filename = getLogFilename();
+  File logFile = SPIFFS.open(filename, FILE_APPEND);
+  if (logFile) {
+    logFile.println(buffer);
+    logFile.close();
+  }
+
+  // Publish via MQTT
+  if (mqttClient.connected()) {
+    mqttClient.publish(mqtt_topic, buffer);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
 
@@ -230,11 +251,16 @@ void setup() {
 
   struct tm timeinfo;
   if (getLocalTime(&timeinfo, 1000)) {
-    char timeStr[64];
+    char timeStr[32];
     strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-    String logEntry = String(timeStr) + " [Boot] " + reasonStr + "\n";
-    Serial.print(logEntry);
-    logEvent(logEntry);
+
+    StaticJsonDocument<256> doc;
+    doc["event"] = "boot";
+    doc["reason"] = reasonStr;
+    doc["timestamp"] = timeStr;
+
+    logEventJson(doc);
+    showOnDisplay("Boot: " + reasonStr);
   }
 
   // === Pin configuration ===
@@ -245,107 +271,110 @@ void setup() {
   Serial.println("Setup complete. Waiting for button presses...");
 }
 
-// === State tracking ===
-static bool preStates[5] = {false};
-static unsigned long lastBluePress = ULONG_MAX;
-static unsigned long lastBlackPress = ULONG_MAX;
-static bool logsCleared = false;
+void handleOtherEvents(bool redPressed, bool yellowPressed, bool blackPressed) {
+  static bool comboSent = false;
+  static bool redSent = false;
+  static bool yellowSent = false;
 
-static bool pendingRed = false;
-static bool pendingYellow = false;
-static unsigned long redPressTime = 0;
-static unsigned long yellowPressTime = 0;
-static bool comboFired = false;
-
-void logAndDisplay(const char* label) {
   struct tm timeinfo;
-  if (getLocalTime(&timeinfo, 1000)) {
-    char timeStr[64];
-    strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
-    String logEntry = String(timeStr) + " " + String(label) + "\n";
-    Serial.print(logEntry);
-    logEvent(logEntry);
-    showOnDisplay(label);
+  getLocalTime(&timeinfo, 1000);
+  char timeStr[32];
+  strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
+
+  // Pee+Poo combo
+  if (redPressed && yellowPressed && !preStates[2] && !preStates[3]) {
+    StaticJsonDocument<256> doc;
+    doc["event"] = "pee+poo";
+    doc["timestamp"] = timeStr;
+    logEventJson(doc);
+    showOnDisplay("Pee+Poo");
+    comboSent = true;
+    redSent = true;
+    yellowSent = true;
+    return; // prevent single actions
+  }
+
+  if (!redPressed && !yellowPressed) {
+    comboSent = false;
+    redSent = false;
+    yellowSent = false;
+  }
+
+  // Pee only if not part of combo and not sent
+  if (yellowPressed && !preStates[2] && !comboSent && !yellowSent) {
+    StaticJsonDocument<256> doc;
+    doc["event"] = "pee";
+    doc["timestamp"] = timeStr;
+    logEventJson(doc);
+    showOnDisplay("Pee");
+    yellowSent = true;
+  }
+
+  // Poo only if not part of combo and not sent
+  if (redPressed && !preStates[3] && !comboSent && !redSent) {
+    StaticJsonDocument<256> doc;
+    doc["event"] = "poo";
+    doc["timestamp"] = timeStr;
+    logEventJson(doc);
+    showOnDisplay("Poo");
+    redSent = true;
+  }
+
+  // Reserved event (black)
+  if (blackPressed && !preStates[4]) {
+    StaticJsonDocument<256> doc;
+    doc["event"] = "reserved";
+    doc["timestamp"] = timeStr;
+    logEventJson(doc);
+    showOnDisplay("Reserved");
   }
 }
 
-void handleBlueBlackCombo(bool blue, bool black, unsigned long now) {
-  if (blue && !preStates[0]) lastBluePress = now;
-  if (black && !preStates[4]) lastBlackPress = now;
+void handleFeedSleepState(bool bluePressed, bool greenPressed) {
+  static bool feedComboLock = false;
+  static bool sleepComboLock = false;
 
-  if (blue && black &&
-      abs((long)(lastBluePress - lastBlackPress)) <= 500 &&
-      !logsCleared) {
-    Serial.println("🧹 Combo triggered: clearing logs...");
-    showOnDisplay("Logs cleared");
+  struct tm timeinfo;
+  getLocalTime(&timeinfo, 1000);
+  char timeStr[32];
+  strftime(timeStr, sizeof(timeStr), "%Y-%m-%d %H:%M:%S", &timeinfo);
 
-    File root = SPIFFS.open("/");
-    File file = root.openNextFile();
-    while (file) {
-      String name = file.name();
-      if (name.startsWith("log")) {
-        SPIFFS.remove("/" + name);
-        Serial.println("🧹 Deleted /" + name);
+  // Feeding toggle
+  if (greenPressed && !preStates[1]) {
+    feeding = !feeding;
+    StaticJsonDocument<256> doc;
+    doc["event"] = "feed";
+    doc["action"] = feeding ? "start" : "stop";
+    doc["timestamp"] = timeStr;
+
+    if (!feeding) {
+      int vol = 0;
+      Serial.println("Enter volume within 5s:");
+      unsigned long t = millis();
+      while (millis() - t < 5000) {
+        if (Serial.available()) {
+          vol = Serial.parseInt();
+          break;
+        }
+        delay(100);
       }
-      file = root.openNextFile();
+      doc["volume"] = vol;
     }
 
-    logsCleared = true;
+    logEventJson(doc);
+    showOnDisplay(String(feeding ? "Feed Start" : "Feed Stop"));
   }
 
-  if (!blue && !black) logsCleared = false;
+  // Sleep toggle
+  if (bluePressed && !preStates[0]) {
+    sleeping = !sleeping;
+    StaticJsonDocument<256> doc;
+    doc["event"] = "sleep";
+    doc["action"] = sleeping ? "start" : "stop";
+    doc["timestamp"] = timeStr;
 
-  if (blue && !black && !logsCleared && !preStates[0]) {
-    logAndDisplay("Blue");
-  }
-
-  if (black && !blue && !logsCleared && !preStates[4]) {
-    logAndDisplay("Black");
-  }
-}
-
-void handleRedYellowCombo(bool red, bool yellow, unsigned long now) {
-  if (red && !preStates[1]) {
-    redPressTime = now;
-    pendingRed = true;
-    comboFired = false;
-  }
-
-  if (yellow && !preStates[3]) {
-    yellowPressTime = now;
-    pendingYellow = true;
-    comboFired = false;
-  }
-
-  if (pendingRed && pendingYellow &&
-      abs((long)(redPressTime - yellowPressTime)) <= 200 &&
-      !comboFired) {
-    logAndDisplay("Pee-Poo");
-    pendingRed = pendingYellow = false;
-    comboFired = true;
-  }
-
-  if (pendingRed && now - redPressTime > 200) {
-    logAndDisplay("Red");
-    pendingRed = false;
-  }
-
-  if (pendingYellow && now - yellowPressTime > 200) {
-    logAndDisplay("Yellow");
-    pendingYellow = false;
-  }
-}
-
-void handleSingleButtonPresses(bool states[]) {
-  for (int i = 0; i < 5; ++i) {
-    if (i == 0 || i == 4) continue; // skip blue/black here (handled by combo)
-    if (i == 1 || i == 3) continue; // skip red/yellow (handled with delay)
-
-    if (states[i] != preStates[i]) {
-      if (states[i]) {
-        logAndDisplay(buttons[i].name);
-      }
-    }
+    logEventJson(doc);
+    showOnDisplay(String(sleeping ? "Sleep Start" : "Sleep Stop"));
   }
 }
 
@@ -356,20 +385,14 @@ void loop() {
     lastMqttReconnect = millis();
   }
 
-  unsigned long now = millis();
-
-  // Read button states
   bool states[5];
   for (int i = 0; i < 5; ++i) {
     states[i] = digitalRead(buttons[i].pin) == HIGH;
   }
 
-  // Handle all button behavior
-  handleBlueBlackCombo(states[0], states[4], now);
-  handleRedYellowCombo(states[1], states[3], now);
-  handleSingleButtonPresses(states);
+  handleFeedSleepState(states[0], states[1]);
+  handleOtherEvents(states[2], states[3], states[4]);
 
-  // Update all preStates at the end
   for (int i = 0; i < 5; ++i) {
     preStates[i] = states[i];
   }
