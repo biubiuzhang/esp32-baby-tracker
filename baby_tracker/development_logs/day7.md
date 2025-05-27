@@ -18,15 +18,15 @@ Once "Stop" is pressed, the display reverts to "Feed" or "Sleep".
 
 **Boot logs now include:**
 
-event: "boot"
+event: `boot`
 
-reason: "<Boot reason>"
+reason: `<Boot reason>`
 
 **Feeding and sleep logs now include:**
 
-event: "feed" or "sleep"
+event: `feed` or `sleep`
 
-action: "start" or "stop"
+action: `start` or `stop`
 
 Optional volume for feeding stop
 
